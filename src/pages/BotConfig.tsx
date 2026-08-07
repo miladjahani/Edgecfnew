@@ -228,14 +228,17 @@ export default function BotConfigPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { cmd: '/start', desc: 'شروع کار با ربات' },
-            { cmd: '/deploy <name>', desc: 'استقرار ورکر جدید' },
+            { cmd: '/deploy <name>', desc: 'استقرار ورکر جدید (ادمین)' },
             { cmd: '/workers', desc: 'لیست ورکرهای مستقر شده' },
             { cmd: '/config <name>', desc: 'دریافت لینک پنل، ساب و کانفیگ' },
             { cmd: '/sub <name>', desc: 'دریافت لینک اشتراک (ساب)' },
             { cmd: '/panel <name>', desc: 'دریافت لینک پنل ورکر' },
-            { cmd: '/set <name> <key> <value>', desc: 'تغییر تنظیمات ورکر' },
+            { cmd: '/set <name> <key> <value>', desc: 'تغییر تنظیمات ورکر (ادمین)' },
             { cmd: '/status', desc: 'وضعیت سرویس‌ها' },
             { cmd: '/tokens', desc: 'لیست توکن‌های کلودفلر' },
+            { cmd: '/support', desc: 'دریافت لینک پشتیبانی' },
+            { cmd: '/makeadmin @user', desc: 'تعیین کاربر به عنوان ادمین (فقط milad201400@gmail.com)' },
+            { cmd: '/removeadmin @user', desc: 'حذف دسترسی ادمین (فقط milad201400@gmail.com)' },
             { cmd: '/help', desc: 'راهنمای دستورات' },
           ].map((c) => (
             <div key={c.cmd} className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/50">
@@ -243,6 +246,26 @@ export default function BotConfigPage() {
               <span className="text-sm text-slate-400">{c.desc}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Support Channel Section */}
+      <div className="glass-card p-6">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+          <Bot className="w-5 h-5 text-brand-400" /> کانال پشتیبانی
+        </h2>
+        <div className="p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30">
+          <p className="text-white font-medium mb-2">📢 کانال تلگرام Miliconfig</p>
+          <p className="text-sm text-slate-400 mb-4">برای دریافت آخرین اخبار، آپدیت‌ها و پشتیبانی به کانال رسمی ما بپیوندید.</p>
+          <a 
+            href="https://t.me/miliconfig" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-all font-medium"
+          >
+            <Bot className="w-4 h-4" />
+            عضویت در کانال
+          </a>
         </div>
       </div>
     </div>
