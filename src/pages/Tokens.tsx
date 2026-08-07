@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { supabase, encryptToken, decryptToken } from '../lib/supabase'
 import type { CFToken } from '../lib/types'
+import ConfirmationDialog from '../components/ui/ConfirmationDialog'
 import {
   KeyRound,
   Plus,
@@ -54,6 +55,7 @@ export default function Tokens() {
   const [newToken, setNewToken] = useState('')
   const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set())
   const [autoBuildLoading, setAutoBuildLoading] = useState(false)
+  const [deleteDialog, setDeleteDialog] = useState<{ isOpen: boolean; id: string | null; name: string }>({ isOpen: false, id: null, name: '' })
 
   const { data: tokens = [], isLoading } = useQuery({
     queryKey: ['cf-tokens'],
@@ -124,9 +126,14 @@ export default function Tokens() {
     addMutation.mutate({ name: newName, token: newToken })
   }
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`توکن «${name}» حذف شود؟`)) return
-    deleteMutation.mutate({ id, name })
+  const handleDeleteClick = (id: string, name: string) => {
+    setDeleteDialog({ isOpen: true, id, name })
+  }
+
+  const handleDeleteConfirm = () => {
+    if (deleteDialog.id && deleteDialog.name) {
+      deleteMutation.mutate({ id: deleteDialog.id, name: deleteDialog.name })
+    }
   }
 
   const toggleVisible = (id: string) => {
@@ -277,7 +284,7 @@ export default function Tokens() {
                     </span>
                   </div>
                 </div>
-                <button onClick={() => handleDelete(token.id, token.name)} className="p-2 rounded-lg text-slate-500 hover:bg-error-500/10 hover:text-error-400 transition-colors">
+                <button onClick={() => handleDeleteClick(token.id, token.name)} className="p-2 rounded-lg text-slate-500 hover:bg-error-500/10 hover:text-error-400 transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -351,6 +358,19 @@ export default function Tokens() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        title="حذف توکن"
+        message={`آیا از حذف توکن «${deleteDialog.name}» اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`}
+        confirmLabel="حذف توکن"
+        cancelLabel="انصراف"
+        type="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteDialog({ isOpen: false, id: null, name: '' })}
+        isConfirming={deleteMutation.isPending}
+      />
     </div>
   )
 }
