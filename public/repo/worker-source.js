@@ -617,6 +617,92 @@ function 解析地址值端口(输入) {
     port: null
   };
 }
+
+async function 处理更新 IPs 接口 (请求，环境值 = {}) {
+  if (请求.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+  }
+  
+  try {
+    const 主体 = await 请求.json();
+    const { ips, timestamp } = 主体;
+    
+    if (!ips || typeof ips !== 'string') {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'داده‌های IP معتبر نیستند' 
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    
+    // تجزیه لیست IPها
+    const IP 列表 = ips.split('\n').filter(line => line.trim());
+    
+    if (IP 列表.length === 0) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'لیست IP خالی است' 
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    
+    // تبدیل به فرمت مورد نیاز
+    const 新地址列表 = [];
+    for (const ipLine of IP 列表) {
+      const parts = ipLine.split('#');
+      const addressPort = parts[0].trim();
+      const name = parts[1] ? parts[1].trim() : `Google-Script-${新地址列表.length + 1}`;
+      
+      const [ip, port] = addressPort.split(':');
+      if (ip && port) {
+        新地址列表.push({
+          ip: ip,
+          port: parseInt(port),
+          name: name,
+          addedAt: new Date().toISOString(),
+          source: 'google-script'
+        });
+      }
+    }
+    
+    if (新地址列表.length === 0) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'هیچ IP معتبری پیدا نشد' 
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    
+    // دریافت لیست فعلی و اضافه کردن IPهای جدید
+    const 当前值 = 获取配置值('yx', '');
+    let 当前列表 = 解析值值数组 (当前值);
+    
+    // حذف IPهای قدیمی از google-script و اضافه کردن جدیدها
+    当前列表 = 当前列表.filter(item => item.source !== 'google-script');
+    当前列表 = [...当前列表，...新地址列表];
+    
+    // ذخیره در KV
+    const 新值字符串 = 处理数组值值 (当前列表);
+    await 设置配置值 ('yx', 新值字符串);
+    
+    // بروزرسانی کش
+    更新自定义优选来源值 ();
+    
+    return new Response(JSON.stringify({
+      success: true,
+      message: `${新地址列表.length} IP با موفقیت بروزرسانی شد`,
+      count: 新地址列表.length,
+      timestamp: timestamp,
+      data: 新地址列表
+    }), { headers: { 'Content-Type': 'application/json' } });
+    
+  } catch (错误) {
+    console.error('Error in update-ips:', 错误);
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: 'خطا در بروزرسانی IPها: ' + 错误.message 
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+
 export default {
   async fetch(请求735, 本地值734, 本地值733) {
     try {
@@ -624,7 +710,13 @@ export default {
       const 是否值732 = 请求735.method === 'POST';
       const 请求网址731 = new URL(请求735.url);
       const 路径值730 = 请求网址731.pathname.split('/').filter(参数值729 => 参数值729);
-      if (!是否网页套接字 && !是否值732 && 请求网址731.pathname !== '/') {
+      
+      // هندل کردن درخواست‌های Google Apps Script برای بروزرسانی IPها
+      if (请求网址 731.pathname.includes('/api/update-ips')) {
+        return await 处理更新 IPs 接口 (请求 735, 本地值 734);
+      }
+      
+      if (!是否网页套接字 && !是否值 732 && 请求网址 731.pathname !== '/') {
         const 值值728 = (本地值734.u || 本地值734.U || '').toLowerCase();
         const 值值727 = (本地值734.d || 本地值734.D || '').toLowerCase();
         const 首次值 = 路径值730[0] || '';
