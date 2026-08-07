@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { BotUser } from '../lib/types'
+import ConfirmationDialog from '../components/ui/ConfirmationDialog'
 import {
   Users,
   Loader2,
@@ -18,6 +19,7 @@ export default function BotUsers() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive' | 'admin'>('all')
+  const [deleteDialog, setDeleteDialog] = useState<{ isOpen: boolean; id: string | null; name: string }>({ isOpen: false, id: null, name: '' })
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('bot_users').select('*').order('created_at', { ascending: false })
@@ -37,10 +39,16 @@ export default function BotUsers() {
     load()
   }
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`کاربر «${name}» حذف شود؟`)) return
-    await supabase.from('bot_users').delete().eq('id', id)
-    load()
+  const handleDeleteClick = (id: string, name: string) => {
+    setDeleteDialog({ isOpen: true, id, name })
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (deleteDialog.id && deleteDialog.name) {
+      await supabase.from('bot_users').delete().eq('id', deleteDialog.id)
+      load()
+      setDeleteDialog({ isOpen: false, id: null, name: '' })
+    }
   }
 
   const filtered = users.filter((u) => {
@@ -189,7 +197,7 @@ export default function BotUsers() {
                         <button onClick={() => handleToggleAdmin(user)} title="تغییر وضعیت ادمین" className="p-2 rounded-lg text-slate-400 hover:bg-orange-500/10 hover:text-orange-400 transition-colors">
                           <Crown className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(user.id, user.first_name ?? user.username ?? 'کاربر')} className="p-2 rounded-lg text-slate-400 hover:bg-error-500/10 hover:text-error-400 transition-colors">
+                        <button onClick={() => handleDeleteClick(user.id, user.first_name ?? user.username ?? 'کاربر')} className="p-2 rounded-lg text-slate-400 hover:bg-error-500/10 hover:text-error-400 transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -201,6 +209,18 @@ export default function BotUsers() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        title="حذف کاربر"
+        message={`آیا از حذف کاربر «${deleteDialog.name}» اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`}
+        confirmLabel="حذف کاربر"
+        cancelLabel="انصراف"
+        type="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteDialog({ isOpen: false, id: null, name: '' })}
+      />
     </div>
   )
 }
