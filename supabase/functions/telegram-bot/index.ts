@@ -19,10 +19,20 @@ async function tgPost(token: string, method: string, body: Record<string, unknow
   }).then((r) => r.json());
 }
 
-async function sendMsg(token: string, chatId: string | number, text: string, keyboard?: object) {
+async function sendMsg(token: string, chatId: string | number, text: string, keyboard?: object, editMessageId?: number) {
   const body: Record<string, unknown> = { chat_id: chatId, text, parse_mode: "HTML" };
   if (keyboard) body.reply_markup = keyboard;
+  if (editMessageId) {
+    body.message_id = editMessageId;
+    return tgPost(token, "editMessageText", body);
+  }
   return tgPost(token, "sendMessage", body);
+}
+
+async function editMsg(token: string, chatId: string | number, messageId: number, text: string, keyboard?: object) {
+  const body: Record<string, unknown> = { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML" };
+  if (keyboard) body.reply_markup = keyboard;
+  return tgPost(token, "editMessageText", body);
 }
 
 // Fire-and-forget: track user + log activity without blocking the response
@@ -60,6 +70,54 @@ async function checkSystemAdmin(userId: string): Promise<boolean> {
   return data?.email === "milad201400@gmail.com";
 }
 
+async function getUserByTelegramId(telegramId: string) {
+  const { data } = await supabase
+    .from("bot_users").select("*").eq("telegram_id", telegramId).maybeSingle();
+  return data;
+}
+
+async function getUserByUsername(username: string, userId: string) {
+  const { data } = await supabase
+    .from("bot_users").select("*").eq("username", username.startsWith("@") ? username.substring(1) : username).eq("user_id", userId).maybeSingle();
+  return data;
+}
+
+async function getAllUsers(userOwnerId: string, limit = 50, offset = 0) {
+  const { data } = await supabase
+    .from("bot_users").select("*").eq("user_id", userOwnerId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  return data ?? [];
+}
+
+async function banUser(userId: string, telegramId: string, reason?: string) {
+  await supabase.from("bot_users").update({ is_active: false }).eq("telegram_id", telegramId);
+  await supabase.from("activity_logs").insert({
+    action: "user_banned",
+    entity_type: "bot_user",
+    entity_name: telegramId,
+    details: { reason: reason || "No reason provided" },
+  });
+}
+
+async function unbanUser(telegramId: string) {
+  await supabase.from("bot_users").update({ is_active: true }).eq("telegram_id", telegramId);
+  await supabase.from("activity_logs").insert({
+    action: "user_unbanned",
+    entity_type: "bot_user",
+    entity_name: telegramId,
+  });
+}
+
+async function deleteUser(telegramId: string) {
+  await supabase.from("bot_users").delete().eq("telegram_id", telegramId);
+  await supabase.from("activity_logs").insert({
+    action: "user_deleted",
+    entity_type: "bot_user",
+    entity_name: telegramId,
+  });
+}
+
 async function pollDeploymentStatus(deploymentId: string, maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     const { data } = await supabase
@@ -71,24 +129,76 @@ async function pollDeploymentStatus(deploymentId: string, maxAttempts = 60) {
   return { status: "timeout", worker_url: null, panel_url: null, error_message: "timeout" };
 }
 
-// Inline keyboard builder with nested menus
-function buildMainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🚀 استقرار ورکر", callback_data: "deploy" }, { text: "📊 وضعیت", callback_data: "status" }],
-      [{ text: "📋 ورکرها", callback_data: "workers" }, { text: "🔗 کانفیگ‌ها", callback_data: "configs" }],
-      [{ text: "👥 کاربران", callback_data: "users_menu" }, { text: "🔐 پنل ادمین", callback_data: "admin_panel" }],
-      [{ text: "📞 پشتیبانی", callback_data: "support" }],
-    ],
-  };
+// Inline keyboard builder with nested menus - GLASS BUTTONS
+function buildMainMenuKeyboard(isAdmin: boolean, isSystemAdmin: boolean) {
+  const kb: any[] = [
+    [{ text: "🚀 استقرار ورکر", callback_data: "deploy" }, { text: "📊 وضعیت", callback_data: "status" }],
+    [{ text: "📋 ورکرها", callback_data: "workers" }, { text: "🔗 کانفیگ‌ها", callback_data: "configs" }],
+  ];
+  
+  if (isAdmin || isSystemAdmin) {
+    kb.push([{ text: "👥 مدیریت کاربران", callback_data: "users_menu" }]);
+    kb.push([{ text: "🔐 پنل ادمین", callback_data: "admin_panel" }]);
+  }
+  
+  kb.push(
+    [{ text: "📞 پشتیبانی", callback_data: "support" }],
+    [{ text: "❓ راهنما", callback_data: "help" }]
+  );
+  
+  return { inline_keyboard: kb };
 }
 
 function buildUsersMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "📊 آمار کاربران", callback_data: "user_stats" }],
-      [{ text: "👥 لیست کاربران", callback_data: "user_list" }],
+      [{ text: "👥 لیست کاربران", callback_data: "user_list_p1" }],
+      [{ text: "🔍 جستجوی کاربر", callback_data: "user_search" }],
+      [{ text: "⛔ کاربران مسدود", callback_data: "banned_users" }],
       [{ text: "🔙 بازگشت", callback_data: "back_main" }],
+    ],
+  };
+}
+
+function buildUserListKeyboard(users: any[], page: number, hasMore: boolean) {
+  const kb: any[] = [];
+  
+  users.forEach((u: any) => {
+    const status = u.is_admin ? "👑" : u.is_active ? "✅" : "❌";
+    const name = u.first_name ?? u.username ?? "کاربر ناشناس";
+    kb.push([{
+      text: `${status} ${name.substring(0, 25)}`,
+      callback_data: `user_detail_${u.telegram_id}`
+    }]);
+  });
+  
+  const navRow: any[] = [];
+  if (page > 1) navRow.push({ text: "◀️ صفحه قبل", callback_data: `user_list_p${page - 1}` });
+  if (hasMore) navRow.push({ text: "صفحه بعد ▶️", callback_data: `user_list_p${page + 1}` });
+  if (navRow.length > 0) kb.push(navRow);
+  
+  kb.push([{ text: "🔙 بازگشت", callback_data: "back_users_menu" }]);
+  
+  return { inline_keyboard: kb };
+}
+
+function buildUserDetailKeyboard(telegramId: string, isActive: boolean, isAdmin: boolean) {
+  return {
+    inline_keyboard: [
+      [{ 
+        text: isActive ? "⛔ مسدود کردن" : "✅ فعال کردن", 
+        callback_data: `toggle_ban_${telegramId}` 
+      }],
+      [{ 
+        text: isAdmin ? "👎 حذف ادمین" : "👑 ارتقا به ادمین", 
+        callback_data: `toggle_admin_${telegramId}` 
+      }],
+      [{ 
+        text: "🗑 حذف کاربر", 
+        callback_data: `delete_user_${telegramId}` 
+      }],
+      [{ text: "🔙 بازگشت", callback_data: "back_users_list" }],
     ],
   };
 }
@@ -97,9 +207,11 @@ function buildAdminPanelKeyboard(isSystemAdmin: boolean) {
   const kb: any[] = [
     [{ text: "👤 مدیریت ادمین‌ها", callback_data: "manage_admins" }],
     [{ text: "📊 گزارش فعالیت‌ها", callback_data: "activity_report" }],
+    [{ text: "👥 مدیریت کاربران", callback_data: "users_menu" }],
   ];
   if (isSystemAdmin) {
     kb.push([{ text: "⚙️ تنظیمات سیستم", callback_data: "system_settings" }]);
+    kb.push([{ text: "📢 ارسال پیام همگانی", callback_data: "broadcast_msg" }]);
   }
   kb.push([{ text: "🔙 بازگشت", callback_data: "back_main" }]);
   return { inline_keyboard: kb };
@@ -109,6 +221,17 @@ function buildSupportKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "📢 کانال تلگرام", url: "https://t.me/miliconfig" }],
+      [{ text: "💬 تماس با پشتیبانی", url: "https://t.me/milad201400" }],
+      [{ text: "🔙 بازگشت", callback_data: "back_main" }],
+    ],
+  };
+}
+
+function buildHelpKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📚 مستندات کامل", url: "https://github.com/miliconfig" }],
+      [{ text: "📞 پشتیبانی", callback_data: "support" }],
       [{ text: "🔙 بازگشت", callback_data: "back_main" }],
     ],
   };
@@ -231,10 +354,196 @@ Deno.serve(async (req: Request) => {
         } else {
           await sendMsg(bt, chatId, "⚙️ <b>تنظیمات سیستم</b>\n\nاین بخش مخصوص ادمین اصلی است.\nاز دستورات زیر استفاده کنید:\n• /setadmin @username - افزودن ادمین\n• /removeadmin @username - حذف ادمین\n• /broadcast پیام - ارسال پیام همگانی");
         }
+      } else if (cbData === "user_list_p1" || cbData.startsWith("user_list_p")) {
+        if (!isAdmin && !isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ دسترسی محدود.");
+        } else {
+          const page = parseInt(cbData.replace("user_list_p", "")) || 1;
+          const limit = 10;
+          const offset = (page - 1) * limit;
+          const users = await getAllUsers(cfg.user_id, limit + 1, offset);
+          const hasMore = users.length > limit;
+          const displayUsers = hasMore ? users.slice(0, limit) : users;
+          
+          if (displayUsers.length === 0) {
+            await sendMsg(bt, chatId, "هنوز کاربری وجود ندارد.");
+          } else {
+            let m = `👥 <b>لیست کاربران (صفحه ${page}):</b>\n\n`;
+            displayUsers.forEach((u: any) => {
+              const badge = u.is_admin ? "👑" : u.is_active ? "✅" : "❌";
+              const name = u.first_name ?? u.username ?? "کاربر ناشناس";
+              m += `${badge} ${name.substring(0, 30)}\n`;
+            });
+            await sendMsg(bt, chatId, m, buildUserListKeyboard(displayUsers, page, hasMore));
+          }
+        }
+      } else if (cbData.startsWith("user_detail_")) {
+        if (!isAdmin && !isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ دسترسی محدود.");
+        } else {
+          const telegramId = cbData.replace("user_detail_", "");
+          const user = await getUserByTelegramId(telegramId);
+          if (!user) {
+            await sendMsg(bt, chatId, "❌ کاربر یافت نشد.");
+          } else {
+            const statusText = user.is_admin ? "ادمین 👑" : user.is_active ? "فعال ✅" : "مسدود ❌";
+            const name = user.first_name ?? user.username ?? "کاربر ناشناس";
+            let m = `👤 <b>اطلاعات کاربر:</b>\n\n`;
+            m += `نام: ${name}\n`;
+            m += `آیدی تلگرام: <code>${user.telegram_id}</code>\n`;
+            if (user.username) m += `یوزرنیم: @${user.username}\n`;
+            m += `وضعیت: ${statusText}\n`;
+            m += `تاریخ عضویت: ${new Date(user.created_at).toLocaleString('fa-IR')}\n`;
+            if (user.last_activity) m += `آخرین فعالیت: ${new Date(user.last_activity).toLocaleString('fa-IR')}\n`;
+            
+            await sendMsg(bt, chatId, m, buildUserDetailKeyboard(user.telegram_id, user.is_active, user.is_admin));
+          }
+        }
+      } else if (cbData.startsWith("toggle_ban_")) {
+        if (!isSystemAdmin && !isAdmin) {
+          await sendMsg(bt, chatId, "⛔ فقط ادمین‌ها.");
+        } else {
+          const telegramId = cbData.replace("toggle_ban_", "");
+          const user = await getUserByTelegramId(telegramId);
+          if (!user) {
+            await sendMsg(bt, chatId, "❌ کاربر یافت نشد.");
+          } else {
+            if (user.is_admin) {
+              await sendMsg(bt, chatId, "⛔ نمی‌توان ادمین را مسدود کرد.");
+            } else {
+              const newStatus = !user.is_active;
+              await supabase.from("bot_users").update({ is_active: newStatus }).eq("telegram_id", telegramId);
+              await sendMsg(bt, chatId, `✅ کاربر ${newStatus ? "مسدود شد" : "فعال شد"}.`);
+              
+              // Refresh the detail view
+              const updatedUser = await getUserByTelegramId(telegramId);
+              if (updatedUser) {
+                const msgId = cq.message?.message_id;
+                if (msgId) {
+                  const statusText = updatedUser.is_admin ? "ادمین 👑" : updatedUser.is_active ? "فعال ✅" : "مسدود ❌";
+                  const name = updatedUser.first_name ?? updatedUser.username ?? "کاربر ناشناس";
+                  let m = `👤 <b>اطلاعات کاربر:</b>\n\n`;
+                  m += `نام: ${name}\n`;
+                  m += `آیدی تلگرام: <code>${updatedUser.telegram_id}</code>\n`;
+                  if (updatedUser.username) m += `یوزرنیم: @${updatedUser.username}\n`;
+                  m += `وضعیت: ${statusText}\n`;
+                  await editMsg(bt, chatId, msgId, m, buildUserDetailKeyboard(updatedUser.telegram_id, updatedUser.is_active, updatedUser.is_admin));
+                }
+              }
+            }
+          }
+        }
+      } else if (cbData.startsWith("toggle_admin_")) {
+        if (!isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ فقط ادمین اصلی سیستم می‌تواند ادمین تغییر دهد.");
+        } else {
+          const telegramId = cbData.replace("toggle_admin_", "");
+          const user = await getUserByTelegramId(telegramId);
+          if (!user) {
+            await sendMsg(bt, chatId, "❌ کاربر یافت نشد.");
+          } else {
+            const newAdminStatus = !user.is_admin;
+            await supabase.from("bot_users").update({ is_admin: newAdminStatus }).eq("telegram_id", telegramId);
+            await sendMsg(bt, chatId, `✅ کاربر ${newAdminStatus ? "به ادمین ارتقا یافت" : "از ادمین حذف شد"}.`);
+            
+            // Log the action
+            await supabase.from("activity_logs").insert({
+              action: newAdminStatus ? "admin_promoted" : "admin_demoted",
+              entity_type: "bot_user",
+              entity_name: user.username ?? String(telegramId),
+              details: { changed_by: "system_admin" }
+            });
+            
+            // Refresh the detail view
+            const msgId = cq.message?.message_id;
+            if (msgId) {
+              const updatedUser = await getUserByTelegramId(telegramId);
+              if (updatedUser) {
+                const statusText = updatedUser.is_admin ? "ادمین 👑" : updatedUser.is_active ? "فعال ✅" : "مسدود ❌";
+                const name = updatedUser.first_name ?? updatedUser.username ?? "کاربر ناشناس";
+                let m = `👤 <b>اطلاعات کاربر:</b>\n\n`;
+                m += `نام: ${name}\n`;
+                m += `آیدی تلگرام: <code>${updatedUser.telegram_id}</code>\n`;
+                if (updatedUser.username) m += `یوزرنیم: @${updatedUser.username}\n`;
+                m += `وضعیت: ${statusText}\n`;
+                await editMsg(bt, chatId, msgId, m, buildUserDetailKeyboard(updatedUser.telegram_id, updatedUser.is_active, updatedUser.is_admin));
+              }
+            }
+          }
+        }
+      } else if (cbData.startsWith("delete_user_")) {
+        if (!isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ فقط ادمین اصلی سیستم.");
+        } else {
+          const telegramId = cbData.replace("delete_user_", "");
+          const user = await getUserByTelegramId(telegramId);
+          if (!user) {
+            await sendMsg(bt, chatId, "❌ کاربر یافت نشد.");
+          } else {
+            await supabase.from("bot_users").delete().eq("telegram_id", telegramId);
+            await sendMsg(bt, chatId, `✅ کاربر حذف شد.`);
+            
+            // Go back to list
+            const page = 1;
+            const limit = 10;
+            const users = await getAllUsers(cfg.user_id, limit, 0);
+            const hasMore = users.length >= limit;
+            await sendMsg(bt, chatId, "👥 لیست کاربران:", buildUserListKeyboard(users.slice(0, limit), page, hasMore));
+          }
+        }
+      } else if (cbData === "back_users_menu") {
+        await sendMsg(bt, chatId, "👥 <b>مدیریت کاربران</b>\n\nبخش مدیریت کاربران را انتخاب کنید:", buildUsersMenuKeyboard());
+      } else if (cbData === "back_users_list") {
+        const page = 1;
+        const limit = 10;
+        const users = await getAllUsers(cfg.user_id, limit, 0);
+        const hasMore = users.length >= limit;
+        await sendMsg(bt, chatId, "👥 لیست کاربران:", buildUserListKeyboard(users.slice(0, limit), page, hasMore));
+      } else if (cbData === "banned_users") {
+        if (!isAdmin && !isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ دسترسی محدود.");
+        } else {
+          const { data: users } = await supabase.from("bot_users").select("*").eq("user_id", cfg.user_id).eq("is_active", false).limit(20);
+          if (!users?.length) {
+            await sendMsg(bt, chatId, "هیچ کاربر مسدودی وجود ندارد. ✅");
+          } else {
+            let m = "⛔ <b>کاربران مسدود:</b>\n\n";
+            users.forEach((u: any) => {
+              const name = u.first_name ?? u.username ?? "کاربر ناشناس";
+              m += `• ${name} (<code>${u.telegram_id}</code>)\n`;
+            });
+            await sendMsg(bt, chatId, m);
+          }
+        }
+      } else if (cbData === "help") {
+        await sendMsg(bt, chatId, "📖 <b>راهنمای ربات Miliconfig</b>\n\n" +
+          "🚀 <b>دستورات عمومی:</b>\n" +
+          "/start - شروع کار با ربات\n" +
+          "/help - نمایش این راهنما\n" +
+          "/status - وضعیت سرویس‌ها\n" +
+          "/workers - لیست ورکرها\n" +
+          "/config [name] - دریافت کانفیگ\n" +
+          "/sub [name] - دریافت لینک ساب\n" +
+          "/panel [name] - دریافت پنل\n" +
+          "\n🔐 <b>دستورات ادمین:</b>\n" +
+          "/deploy [name] - استقرار ورکر جدید\n" +
+          "/set [name] [key] [value] - تنظیمات ورکر\n" +
+          "/makeadmin @user - تعیین ادمین (فقط milad201400@gmail.com)\n" +
+          "/removeadmin @user - حذف ادمین\n" +
+          "\n📞 پشتیبانی: @milad201400", buildHelpKeyboard());
+      } else if (cbData === "broadcast_msg") {
+        if (!isSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ فقط ادمین اصلی سیستم.");
+        } else {
+          await sendMsg(bt, chatId, "📢 <b>ارسال پیام همگانی</b>\n\n" +
+            "برای ارسال پیام به همه کاربران، از دستور زیر استفاده کنید:\n" +
+            "<code>/broadcast متن پیام شما</code>\n\n" +
+            "⚠️ توجه: این پیام به تمام کاربران ربات ارسال خواهد شد.");
+        }
       } else if (cbData === "support") {
         await sendMsg(bt, chatId, "📞 <b>پشتیبانی</b>\n\nبرای دریافت پشتیبانی به کانال تلگرام ما بپیوندید:", buildSupportKeyboard());
       } else if (cbData === "back_main") {
-        await sendMsg(bt, chatId, cfg.welcome_message, buildMainMenuKeyboard());
+        await sendMsg(bt, chatId, cfg.welcome_message, buildMainMenuKeyboard(isAdmin, isSystemAdmin));
       }
 
       return ok();
@@ -272,10 +581,10 @@ Deno.serve(async (req: Request) => {
         welcomeText = `👤 <b>سلام ادمین عزیز!</b>\n\n${cfg.welcome_message}\n\nشما دسترسی به پنل مدیریت کاربران دارید.`;
       }
       
-      await sendMsg(bt, chatId, welcomeText, buildMainMenuKeyboard());
+      await sendMsg(bt, chatId, welcomeText, buildMainMenuKeyboard(isAdmin, isSystemAdmin));
 
     } else if (text === "/help") {
-      await sendMsg(bt, chatId, "📖 <b>دستورات:</b>\n\n/start - شروع\n/deploy &lt;name&gt; - استقرار (ادمین)\n/workers - ورکرها\n/config &lt;name&gt; - کانفیگ\n/sub [name] - ساب\n/panel [name] - پنل\n/status - وضعیت\n/help - راهنما");
+      await sendMsg(bt, chatId, "📖 <b>دستورات:</b>\n\n/start - شروع\n/deploy &lt;name&gt; - استقرار (ادمین)\n/workers - ورکرها\n/config &lt;name&gt; - کانفیگ\n/sub [name] - ساب\n/panel [name] - پنل\n/status - وضعیت\n/help - راهنما", buildHelpKeyboard());
 
     } else if (text === "/status") {
       const [tk, dp, bu] = await Promise.all([
@@ -450,14 +759,65 @@ Deno.serve(async (req: Request) => {
       }
 
     } else if (text === "/support") {
-      await sendMsg(bt, chatId, "📞 <b>پشتیبانی</b>\n\nبرای دریافت پشتیبانی به کانال تلگرام ما بپیوندید:\n\n📢 https://t.me/miliconfig", {
-        inline_keyboard: [
-          [{ text: "📢 کانال تلگرام", url: "https://t.me/miliconfig" }],
-        ],
-      });
+      await sendMsg(bt, chatId, "📞 <b>پشتیبانی</b>
+
+برای دریافت پشتیبانی به کانال تلگرام ما بپیوندید:
+
+📢 https://t.me/miliconfig", buildSupportKeyboard());
+
+    } else if (text.startsWith("/broadcast")) {
+      const parts = text.split(" ");
+      if (parts.length < 2) { 
+        await sendMsg(bt, chatId, "⚙️ استفاده: <code>/broadcast متن پیام شما</code>"); 
+      } else {
+        const { data: callerData } = await supabase.from("bot_users").select("user_id").eq("telegram_id", telegramId).maybeSingle();
+        const isCallerSystemAdmin = callerData?.user_id ? await checkSystemAdmin(callerData.user_id) : false;
+        
+        if (!isCallerSystemAdmin) {
+          await sendMsg(bt, chatId, "⛔ فقط ادمین اصلی سیستم (milad201400@gmail.com) می‌تواند پیام همگانی ارسال کند.");
+        } else {
+          const messageText = parts.slice(1).join(" ");
+          const { data: allUsers } = await supabase.from("bot_users").select("telegram_id").eq("user_id", cfg.user_id).eq("is_active", true);
+          
+          if (!allUsers?.length) {
+            await sendMsg(bt, chatId, "هیچ کاربر فعالی برای ارسال پیام وجود ندارد.");
+          } else {
+            let sentCount = 0;
+            let failedCount = 0;
+            
+            for (const user of allUsers) {
+              try {
+                await tgPost(bt, "sendMessage", {
+                  chat_id: user.telegram_id,
+                  text: `📢 <b>پیام همگانی از طرف ادمین:</b>
+
+${messageText}`,
+                  parse_mode: "HTML"
+                });
+                sentCount++;
+              } catch {
+                failedCount++;
+              }
+            }
+            
+            await sendMsg(bt, chatId, `✅ پیام همگانی ارسال شد.
+
+📊 آمار:
+• موفق: ${sentCount}
+• ناموفق: ${failedCount}`);
+            
+            await supabase.from("activity_logs").insert({
+              action: "broadcast_sent",
+              entity_type: "bot",
+              entity_name: "broadcast",
+              details: { sent_to: sentCount, failed: failedCount, message: messageText.substring(0, 100) }
+            });
+          }
+        }
+      }
 
     } else {
-      await sendMsg(bt, chatId, "متوجه نشدم. /help را بفرست.");
+      await sendMsg(bt, chatId, "متوجه نشدم. /help را بفرست.", buildHelpKeyboard());
     }
 
     return ok();
