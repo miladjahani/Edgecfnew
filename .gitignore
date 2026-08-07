@@ -1,2 +1,19 @@
-node_modules
+```
+# Build artifacts
+dist/
+*.css
+*.js
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Database migrations (if auto-generated)
+supabase/migrations/*.sql
+
+# Environment
 .env
+.env.local
+.env.*
+```
