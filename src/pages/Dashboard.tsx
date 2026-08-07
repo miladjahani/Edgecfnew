@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import {
@@ -37,16 +38,27 @@ interface RecentLog {
 export default function Dashboard() {
   const { user } = useAuth()
   const [stats, setStats] = useState<Stats | null>(null)
-  const [logs, setLogs] = useState<RecentLog[]>([])
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function load() {
-      const [tokens, deployments, botUsers, recentLogs] = await Promise.all([
+  const { data: logs = [], isLoading: logsLoading } = useQuery({
+    queryKey: ['recent-logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('id, action, entity_name, created_at')
+        .order('created_at', { ascending: false })
+        .limit(8)
+      if (error) throw error
+      return data as RecentLog[]
+    },
+  })
+
+  const { isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: async () => {
+      const [tokens, deployments, botUsers] = await Promise.all([
         supabase.from('cf_tokens').select('*', { count: 'exact', head: true }),
         supabase.from('deployments').select('status'),
         supabase.from('bot_users').select('is_active'),
-        supabase.from('activity_logs').select('id, action, entity_name, created_at').order('created_at', { ascending: false }).limit(8),
       ])
 
       const depStatuses = deployments.data ?? []
@@ -59,11 +71,11 @@ export default function Dashboard() {
         activeBotUsers: botUsers.data?.filter((b: { is_active: boolean }) => b.is_active).length ?? 0,
         recentLogs: 0,
       })
-      setLogs(recentLogs.data as RecentLog[])
-      setLoading(false)
-    }
-    load()
-  }, [])
+      return null
+    },
+  })
+
+  const loading = statsLoading || logsLoading
 
   if (loading) {
     return (

@@ -1,5 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import { supabase, encryptToken, decryptToken } from '../lib/supabase'
 import type { CFToken } from '../lib/types'
 import {
   KeyRound,
@@ -46,42 +48,85 @@ function buildPrefillUrl(): string {
 }
 
 export default function Tokens() {
-  const [tokens, setTokens] = useState<CFToken[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newToken, setNewToken] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set())
+  const [autoBuildLoading, setAutoBuildLoading] = useState(false)
 
-  const load = useCallback(async () => {
-    const { data } = await supabase.from('cf_tokens').select('*').order('created_at', { ascending: false })
-    setTokens(data as CFToken[] ?? [])
-    setLoading(false)
-  }, [])
+  const { data: tokens = [], isLoading } = useQuery({
+    queryKey: ['cf-tokens'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('cf_tokens')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      // Decrypt tokens on retrieval
+      return (data as CFToken[]).map(token => ({
+        ...token,
+        token: decryptToken(token.token)
+      }))
+    },
+  })
 
-  useEffect(() => { load() }, [load])
+  const addMutation = useMutation({
+    mutationFn: async ({ name, token }: { name: string; token: string }) => {
+      // Encrypt token before storing
+      const encryptedToken = encryptToken(token)
+      const { data, error } = await supabase
+        .from('cf_tokens')
+        .insert({ name, token: encryptedToken })
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    },
+    onSuccess: (data) => {
+      toast.success(`توکن «${data.name}» با موفقیت اضافه شد`)
+      queryClient.invalidateQueries({ queryKey: ['cf-tokens'] })
+      supabase.from('activity_logs').insert({ 
+        action: 'token_created', 
+        entity_type: 'token', 
+        entity_name: data.name 
+      })
+      setNewName('')
+      setNewToken('')
+      setShowAdd(false)
+    },
+    onError: (error) => {
+      toast.error(`خطا در افزودن توکن: ${error.message}`)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase.from('cf_tokens').delete().eq('id', id)
+      if (error) throw error
+      await supabase.from('activity_logs').insert({ 
+        action: 'token_deleted', 
+        entity_type: 'token', 
+        entity_name: name 
+      })
+    },
+    onSuccess: () => {
+      toast.success('توکن با موفقیت حذف شد')
+      queryClient.invalidateQueries({ queryKey: ['cf-tokens'] })
+    },
+    onError: (error) => {
+      toast.error(`خطا در حذف توکن: ${error.message}`)
+    },
+  })
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaving(true)
-    const { data } = await supabase.from('cf_tokens').insert({ name: newName, token: newToken }).select().single()
-    if (data) {
-      await supabase.from('activity_logs').insert({ action: 'token_created', entity_type: 'token', entity_name: newName })
-    }
-    setNewName('')
-    setNewToken('')
-    setShowAdd(false)
-    setSaving(false)
-    load()
+    addMutation.mutate({ name: newName, token: newToken })
   }
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`توکن «${name}» حذف شود؟`)) return
-    await supabase.from('cf_tokens').delete().eq('id', id)
-    await supabase.from('activity_logs').insert({ action: 'token_deleted', entity_type: 'token', entity_name: name })
-    load()
+    deleteMutation.mutate({ id, name })
   }
 
   const toggleVisible = (id: string) => {
@@ -91,23 +136,20 @@ export default function Tokens() {
     setVisibleIds(next)
   }
 
-  const copyToken = (id: string, token: string) => {
+  const copyToken = useCallback((id: string, token: string) => {
     navigator.clipboard.writeText(token)
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(null), 2000)
-  }
+    toast.success('توکن کپی شد')
+  }, [])
 
   const maskToken = (t: string) => t.slice(0, 6) + '••••••••••••••••' + t.slice(-4)
 
-  const [autoBuildLoading, setAutoBuildLoading] = useState(false)
-
-  const handleAutoBuildToken = async () => {
+  const handleAutoBuildToken = () => {
     setAutoBuildLoading(true)
     window.open(buildPrefillUrl(), '_blank', 'noopener')
-    setAutoBuildLoading(false)
+    setTimeout(() => setAutoBuildLoading(false), 1000)
   }
 
-  if (loading) {
+  if (isLoading) {
     return <div className="flex items-center justify-center h-96"><Loader2 className="w-8 h-8 animate-spin text-brand-400" /></div>
   }
 
@@ -248,7 +290,7 @@ export default function Tokens() {
                   {visibleIds.has(token.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
                 <button onClick={() => copyToken(token.id, token.token)} className="p-1.5 rounded-lg text-slate-500 hover:text-white transition-colors">
-                  {copiedId === token.id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  <Copy className="w-4 h-4" />
                 </button>
               </div>
 
@@ -299,8 +341,8 @@ export default function Tokens() {
                 />
               </div>
               <div className="flex gap-3">
-                <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                <button type="submit" disabled={addMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {addMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   ذخیره توکن
                 </button>
                 <button type="button" onClick={() => setShowAdd(false)} className="btn-ghost">انصراف</button>
