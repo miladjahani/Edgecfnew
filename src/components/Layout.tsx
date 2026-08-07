@@ -12,6 +12,8 @@ import {
   Menu,
   X,
   UserPlus,
+  Headphones,
+  Crown,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -22,6 +24,7 @@ const navItems = [
   { to: '/deployments', label: 'ورکرها', icon: Cloud },
   { to: '/bot-config', label: 'ربات تلگرام', icon: Bot },
   { to: '/bot-users', label: 'کاربران ربات', icon: Users },
+  { to: '/support', label: 'پشتیبانی', icon: Headphones },
   { to: '/logs', label: 'لاگ‌ها', icon: ScrollText },
 ]
 
@@ -96,12 +99,24 @@ export default function Layout() {
           {/* User */}
           <div className="p-4 border-t border-slate-800/50">
             <div className="flex items-center gap-3 mb-3 px-2">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-sm">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                user?.email === 'milad201400@gmail.com' 
+                  ? 'bg-gradient-to-br from-orange-500 to-orange-600 animate-pulse-glow' 
+                  : 'bg-gradient-to-br from-brand-500 to-brand-700'
+              }`}>
                 {user?.email?.[0]?.toUpperCase() ?? 'U'}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white font-medium truncate">{user?.email}</p>
-                <p className="text-xs text-slate-500">مدیر</p>
+                <p className={`text-xs font-medium ${
+                  user?.email === 'milad201400@gmail.com' ? 'text-orange-400' : 'text-slate-500'
+                }`}>
+                  {user?.email === 'milad201400@gmail.com' ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Crown className="w-3 h-3" /> ادمین اصلی
+                    </span>
+                  ) : 'مدیر'}
+                </p>
               </div>
             </div>
             <button onClick={handleSignOut} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/50 text-slate-300 hover:bg-error-500/10 hover:text-error-400 transition-all duration-200 text-sm font-medium">
