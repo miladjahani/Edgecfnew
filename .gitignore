@@ -1,4 +1,7 @@
 ```
+# Build artifacts
+tsconfig.tsbuildinfo
+
 # Dependencies
 node_modules/
 
@@ -7,40 +10,57 @@ node_modules/
 .env.local
 *.env.*
 
+# Editors
+.vscode/
+.idea/
+
 # Logs
 *.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Python cache (if any Python files exist in project)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 # Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# IDE specific
-.vscode/
-.idea/
+# Temporary files
+*.tmp
 *.swp
 *.swo
 
-# Build outputs
+# Distribution / build folders
 dist/
 build/
 target/
+.out
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Virtual environments
+venv/
+.venv/
+env/
+.ENV/
 
-# Temporary files
-*.tmp
-*.temp
+# Dependency directories
+.jspm/
+.npm/
+.yarn/
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Testing
+*.test.js
+*.spec.js
+*.test.ts
+*.spec.ts
 
-# Compression files
+# Compressed files
 *.zip
 *.gz
 *.tar

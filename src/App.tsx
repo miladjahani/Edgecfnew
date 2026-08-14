@@ -7,6 +7,7 @@ import Deployments from './pages/Deployments'
 import DeployWizard from './pages/DeployWizard'
 import BotUsers from './pages/BotUsers'
 import BotConfig from './pages/BotConfig'
+import SubUsers from './pages/SubUsers'
 import ActivityLogs from './pages/ActivityLogs'
 import Support from './pages/Support'
 import Layout from './components/Layout'
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="deploy" element={<DeployWizard />} />
         <Route path="bot-users" element={<BotUsers />} />
         <Route path="bot-config" element={<BotConfig />} />
+        <Route path="sub-users" element={<SubUsers />} />
         <Route path="support" element={<Support />} />
         <Route path="logs" element={<ActivityLogs />} />
       </Route>

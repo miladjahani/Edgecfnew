@@ -14,6 +14,7 @@ import {
   UserPlus,
   Headphones,
   Crown,
+  UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/deployments', label: 'ورکرها', icon: Cloud },
   { to: '/bot-config', label: 'ربات تلگرام', icon: Bot },
   { to: '/bot-users', label: 'کاربران ربات', icon: Users },
+  { to: '/sub-users', label: 'کاربران زیرمجموعه', icon: UsersRound },
   { to: '/support', label: 'پشتیبانی', icon: Headphones },
   { to: '/logs', label: 'لاگ‌ها', icon: ScrollText },
 ]
